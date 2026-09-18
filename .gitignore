@@ -27,3 +27,9 @@ Thumbs.db
 # Generated sample request bodies for manual curl testing
 sample_case_*.json
 sample_s*.json
+
+# Suite run artifacts (regenerate with tools/suite_50.py)
+tools/suite_50_run.txt
+tools/suite_50_cold_run.txt
+tools/suite_50_results.json
+tools/suite_50_cold_results.json

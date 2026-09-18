@@ -117,6 +117,12 @@ The central design rule: **the optimizer never reads English, and the verifier n
 optimizer.** Those are two separate code paths on purpose — if they shared an implementation bug,
 the check would be worthless.
 
+> **Full architecture:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) has six Mermaid diagrams
+> (pipeline, request lifecycle, recovery ladder, English→math transformation, module map, deployment
+> topology), the design invariants, and a **3-minute video narration script** with timings.
+> Open [`docs/architecture.html`](docs/architecture.html) in any browser for a self-contained,
+> CDN-free diagram — no network required, so it cannot fail mid-recording.
+
 ---
 
 ## 3. The LLM's role
@@ -323,7 +329,7 @@ curl -X POST http://127.0.0.1:8000/optimize-energy \
 |---|---|---|
 | `scenario_id` | string | Echoed back in the response |
 | `operator_notes` | array[1..3] of string | Non-empty after trimming |
-| `hours` | array[24] | Must cover each hour 0–23 exactly once; any input order accepted |
+| `hours` | array[24] | Must cover each hour 0–23 exactly once. **Any input order is accepted** and normalised internally — see the note below |
 | `hours[].hour` | int 0–23 | |
 | `hours[].demand_kwh` | number ≥ 0 | |
 | `hours[].solar_kwh` | number ≥ 0 | Base solar before directives |
@@ -335,6 +341,13 @@ curl -X POST http://127.0.0.1:8000/optimize-energy \
 | `battery.max_discharge_kwh_per_hour` | number ≥ 0 | |
 
 Extra top-level keys in the request are ignored, so a harness may attach trace fields safely.
+
+> **Why a shuffled `hours` array is accepted, not rejected.** Section 07 requires the request to
+> contain *"exactly 24 entries for hours 0 through 23"* and imposes no ordering. Ascending order is
+> demanded only of the **response** — `structured_adjustment.hours` (§5.1) and the hours we return
+> (§08). Rejecting a shuffled request would fail a legal harness case, so the service sorts
+> internally and always returns `hourly_plan` in ascending order. A regression test asserts that
+> reversed, swapped and rotated inputs all yield the identical optimal cost.
 
 **Response fields**
 
@@ -376,7 +389,7 @@ Extra top-level keys in the request are ignored, so a harness may attach trace f
 |---|---|
 | `200` | Success |
 | `400` | Malformed JSON or structurally invalid request (missing field, wrong hour count, duplicate hours, 4+ notes, blank note, negative demand) |
-| `422` | Well-formed but semantically invalid (`initial_energy_kwh` or `minimum_energy_kwh` above capacity) |
+| `422` | Well-formed but **provably infeasible**: `initial_energy_kwh` above `capacity_kwh`, `minimum_energy_kwh` above `capacity_kwh`, or `initial_energy_kwh` below `minimum_energy_kwh` |
 | `500` | Controlled internal error — generic message only |
 
 Error bodies are always `{"error": {"code": "...", "message": "..."}}`.
@@ -492,6 +505,60 @@ Exercises the complete judged path over real HTTP — Pydantic → LLM → guard
 replay → JSON — for all 10 public cases, and reports a latency breakdown. Exits non-zero on any
 failure, so it doubles as a pre-submission gate.
 
+### 50-case deployment suite
+
+```bash
+python tools/suite_50.py --url https://your-service.example.com
+python tools/suite_50.py --category TIME        # one group
+python tools/suite_50.py --only SR-PCT-OF,P-RES-A
+python tools/suite_50.py --salt=cold1           # defeat the cache, measure true latency
+python tools/suite_50.py --dump tools/suite_50.json
+```
+
+A broad regression suite for a **deployed** instance. Each case is scored on five independent
+dimensions:
+
+1. HTTP status matches the contract (`200` / `400` / `422`)
+2. response schema is complete and well-formed
+3. `directive_interpretation` matches the case's ground truth
+4. the returned `hourly_plan` **replays clean against the ground-truth directives** — the judge's
+   actual method, so a correct parse with an unapplied directive still fails
+5. reported cost is not worse than the optimum computed locally for the same scenario and ground
+   truth, i.e. `min(1, optimal/team)` stays at `1.0`
+
+Reported totals are also recomputed from `hourly_plan` to catch any arithmetic drift.
+
+| Category | Cases | Focus |
+|---|---|---|
+| `SOLAR` | 4 | percentage-of vs percentage-reduction, fractional wording, "drop to X%" |
+| `CHARGE` | 2 | explicit prohibition, indirect "charger offline" |
+| `DISCHARGE` | 2 | explicit prohibition, passive-voice availability |
+| `RESERVE` | 2 | absolute kWh, percentage of capacity |
+| `GRID` | 2 | plain cap, tight equipment cap requiring near-max discharge |
+| `DISTRACTOR` | 5 | admin/menu/booking notes, including one that says "hours" |
+| `TIME` | 7 | single hour, to-midnight, from-midnight, noon, 6-hour window, pre-dawn, late evening |
+| `MULTI` | 10 | 2–3 directives, distractor mixing, duplicate-type merging (factors multiply, reserve max, cap min) |
+| `PARAPHRASE` | 6 | the same directive written two ways each, for robustness |
+| `STRESS` | 6 | zero solar, surplus/curtailment, flat tariff, extreme peak, tiny battery, zero discharge rate |
+| `API` | 4 | `/health`, malformed JSON → 400, too many notes → 400, semantic invalid → 422 |
+
+#### Results against the deployed Render instance
+
+```
+target: https://bup-hackathon-00ea.onrender.com
+  SOLAR 4/4 · CHARGE 2/2 · DISCHARGE 2/2 · RESERVE 2/2 · GRID 2/2 · DISTRACTOR 5/5
+  TIME 7/7 · MULTI 10/10 · PARAPHRASE 6/6 · STRESS 6/6 · API 4/4
+  total: 50/50 passed
+  latency (cold cache): median 837ms · p95 1187ms · max 1345ms
+```
+
+* Every `cost` matched the locally computed optimum to the cent, so the optimization quality ratio
+  is `1.0` across the board.
+* No interpretation entry carried the `Rule-based fallback` marker, confirming the **live model**
+  handled all 46 note-interpretation cases with no silent degradation to the offline interpreter.
+* Replaying the same cases a second time measured ~79 ms, which is the response cache working —
+  hence `--salt`, which perturbs `scenario_id` so latency measurements are not cache hits.
+
 ### Verified against the live provider
 
 Measured with `deepseek-chat` (`tools/e2e_check.py`, all 10 public cases, cache cold):
@@ -535,7 +602,17 @@ Bup_soln/
 │       ├── solver.py              LP builder, solver tiers, post-processing
 │       └── replay.py              independent hour-by-hour verifier
 ├── tests/                         74 tests, hermetic and offline
+├── docs/
+│   ├── ARCHITECTURE.md            6 Mermaid diagrams + 3-minute narration script
+│   └── architecture.html          self-contained diagram for screen recording
 ├── tools/                         developer utilities (not in the judged path)
+│   ├── inspect_cases.py           summarize the public case pack
+│   ├── make_sample.py             dump one request body for manual curl
+│   ├── verify_public_cases.py     optimum check vs the 10 public references
+│   ├── check_llm.py               live interpretation check vs ground truth
+│   ├── e2e_check.py               full-path HTTP check against a running service
+│   ├── suite_50.py                50-case deployment regression suite
+│   └── suite_50.json              the generated case pack
 ├── requirements.txt
 ├── pytest.ini
 └── .env.example
@@ -571,6 +648,12 @@ note, tariff, or battery state can never return a stale plan.
 **Fail soft, never 5xx on a valid request.** Provider outage, malformed model output, infeasible
 model, and replay mismatch each have a defined recovery stage. The service always tries to return a
 plan rather than an error page.
+
+**Reject only what is provably infeasible.** Semantic rejections (422) are limited to battery states
+where *no* valid plan can exist, each justified by a constraint contradiction rather than a guess —
+for example `initial < minimum` is impossible because neutrality forces `soc[23] == initial` while
+the SOC bound forces `soc[23] >= minimum`. Conversely, inputs that are merely unusual but legal are
+accepted and normalised, because over-strict validation silently fails valid harness cases.
 
 ---
 

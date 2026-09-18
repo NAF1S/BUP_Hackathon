@@ -160,7 +160,16 @@ class HealthResponse(BaseModel):
 def semantic_problems(request: ScenarioRequest) -> list[str]:
     """Cross-field problems that are well-formed but semantically unusable.
 
-    These map to HTTP 422 in the Problem Statement's status table.
+    These map to HTTP 422 in the Problem Statement's status table. Every one of
+    them is *provably infeasible*, not merely unusual, so rejecting the request
+    is correct: the organizer guarantees that scored scenarios are feasible.
+
+    * ``initial > capacity``  - the starting state is outside the hard SOC bound.
+    * ``minimum > capacity``  - the reserve and the ceiling contradict outright.
+    * ``initial < minimum``   - end-of-day neutrality forces ``soc[23] == initial``
+      while the SOC bound forces ``soc[23] >= minimum``. The two cannot both hold,
+      so no valid plan exists. Verified empirically: the strict LP is infeasible
+      and only a reserve-relaxed plan can be produced.
     """
     problems: list[str] = []
     battery = request.battery
@@ -168,4 +177,9 @@ def semantic_problems(request: ScenarioRequest) -> list[str]:
         problems.append("battery.initial_energy_kwh must not exceed capacity_kwh")
     if battery.minimum_energy_kwh > battery.capacity_kwh + 1e-9:
         problems.append("battery.minimum_energy_kwh must not exceed capacity_kwh")
+    if battery.initial_energy_kwh < battery.minimum_energy_kwh - 1e-9:
+        problems.append(
+            "battery.initial_energy_kwh must not be below minimum_energy_kwh: "
+            "end-of-day neutrality and the SOC lower bound cannot both be satisfied"
+        )
     return problems

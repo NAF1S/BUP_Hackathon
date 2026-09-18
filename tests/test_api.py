@@ -132,12 +132,32 @@ def test_totals_are_self_consistent(client: TestClient, cases) -> None:
     assert body["plan_summary"]
 
 
-def test_hours_may_arrive_out_of_order(client: TestClient, cases) -> None:
+def test_hours_may_arrive_in_any_order(client: TestClient, cases) -> None:
+    """The request may list hours in any order; only our output must be ordered.
+
+    Section 07 requires "exactly 24 entries for hours 0 through 23" and says
+    nothing about their order. Ascending order is required only of the *response*
+    - ``structured_adjustment.hours`` (Section 5.1) and the hours we return
+    (Section 08). Rejecting a shuffled request would therefore fail a legal
+    harness case, so the service normalises internally instead.
+    """
     payload = sample_input(cases[0])
-    payload["hours"] = list(reversed(payload["hours"]))
-    response = client.post("/optimize-energy", json=payload)
-    assert response.status_code == 200
-    assert [entry["hour"] for entry in response.json()["hourly_plan"]] == list(range(24))
+    baseline = client.post("/optimize-energy", json=payload)
+    assert baseline.status_code == 200
+    baseline_cost = baseline.json()["total_cost_bdt"]
+
+    rows = payload["hours"]
+    variants = {
+        "reversed": list(reversed(rows)),
+        "swapped": [rows[1], rows[0], *rows[2:]],
+        "rotated": [*rows[7:], *rows[:7]],
+    }
+    for label, hours in variants.items():
+        response = client.post("/optimize-energy", json={**payload, "hours": hours})
+        assert response.status_code == 200, label
+        body = response.json()
+        assert [entry["hour"] for entry in body["hourly_plan"]] == list(range(24)), label
+        assert body["total_cost_bdt"] == pytest.approx(baseline_cost, abs=0.01), label
 
 
 @pytest.mark.parametrize("index", [0, 5, 9])
@@ -210,6 +230,32 @@ def test_semantically_invalid_battery_returns_422(client: TestClient, cases) -> 
     response = client.post("/optimize-energy", json=payload)
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "semantically_invalid_request"
+
+
+def test_initial_energy_below_minimum_returns_422(client: TestClient, cases) -> None:
+    """Provably infeasible: neutrality forces soc[23] == initial while the SOC
+    bound forces soc[23] >= minimum, so no valid plan exists."""
+    payload = sample_input(cases[0])
+    payload["battery"]["minimum_energy_kwh"] = 150.0
+    payload["battery"]["initial_energy_kwh"] = 100.0
+    response = client.post("/optimize-energy", json=payload)
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "semantically_invalid_request"
+
+
+def test_minimum_energy_above_capacity_returns_422(client: TestClient, cases) -> None:
+    payload = sample_input(cases[0])
+    payload["battery"]["minimum_energy_kwh"] = payload["battery"]["capacity_kwh"] + 1
+    response = client.post("/optimize-energy", json=payload)
+    assert response.status_code == 422
+
+
+def test_initial_energy_equal_to_minimum_is_accepted(client: TestClient, cases) -> None:
+    """The boundary is feasible, so it must not be rejected."""
+    payload = sample_input(cases[0])
+    payload["battery"]["initial_energy_kwh"] = payload["battery"]["minimum_energy_kwh"]
+    response = client.post("/optimize-energy", json=payload)
+    assert response.status_code == 200, response.text
 
 
 def test_extra_request_fields_are_ignored(client: TestClient, cases) -> None:

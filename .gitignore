@@ -33,3 +33,8 @@ tools/suite_50_run.txt
 tools/suite_50_cold_run.txt
 tools/suite_50_results.json
 tools/suite_50_cold_results.json
+
+# Docker build/push logs (UTF-16 noise, never source)
+dkbuild*.log
+dkpush*.log
+*.log

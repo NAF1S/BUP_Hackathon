@@ -1,0 +1,52 @@
+# Keep the build context small and, critically, keep secrets out of the image.
+# Anything not needed at runtime is excluded.
+
+# --- secrets and local configuration (never bake these in) -----------------
+.env
+.env.*
+!.env.example
+
+# --- version control / editors / OS ---------------------------------------
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# --- local virtualenvs and caches -----------------------------------------
+# NOTE: Docker's .dockerignore matches the full path relative to the context
+# root, and `*` does not cross `/`. Bare names therefore only exclude top-level
+# entries, so recursive patterns need an explicit `**/` prefix - otherwise
+# app/__pycache__ ships inside the image.
+.venv
+venv
+env
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.coverage
+**/htmlcov
+
+# --- development-only assets (not part of the served image) ---------------
+tests
+tools
+docs
+README.md
+pytest.ini
+
+# --- container plumbing itself --------------------------------------------
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# --- generated run artifacts ----------------------------------------------
+# NOTE: do NOT exclude *.txt wholesale - requirements.txt is copied by the
+# Dockerfile and an over-broad rule breaks the build.
+*.log
+sample_case_*.json
+sample_s*.json
+**/*.log

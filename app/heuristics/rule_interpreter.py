@@ -272,6 +272,11 @@ def _grid_cap_value(text: str) -> float | None:
 
 
 def _hit(pattern: re.Pattern[str], text: str) -> bool:
+    """Word-boundary match against a pre-compiled pattern.
+
+    Raw substring tests are unsafe for this vocabulary: "import" would fire
+    inside "important", and "charge" would fire inside "discharge".
+    """
     return pattern.search(text) is not None
 
 
@@ -329,8 +334,6 @@ def classify(text: str, capacity_kwh: float) -> DirectiveInterpretation:
                 f"battery reserve raised to {round(value, 6)} kWh for hours {hours}",
             )
 
-    # Discharge is checked before charge: "discharge" never contains a
-    # word-boundary "charge", but keeping the order explicit avoids surprises.
     if _hit(_DISCHARGE_RE, lowered):
         return _build(
             DirectiveType.NO_DISCHARGE_WINDOW,

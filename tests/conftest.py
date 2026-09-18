@@ -3,11 +3,25 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import pytest
+
+# HiGHS solves through a native thread pool. This workload is a 120-variable LP
+# that finishes in ~5 ms, so the pool buys nothing - and on Windows it can race
+# with interpreter shutdown, producing an intermittent "Windows fatal exception:
+# access violation" dump at process exit. Pin the numeric libraries to a single
+# thread *before* numpy/scipy are imported.
+for _thread_var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+):
+    os.environ.setdefault(_thread_var, "1")
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:

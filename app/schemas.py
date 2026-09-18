@@ -12,6 +12,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.config import get_settings
+
 _LENIENT = ConfigDict(extra="ignore", allow_inf_nan=False)
 _STRICT = ConfigDict(extra="forbid", allow_inf_nan=False)
 
@@ -89,6 +91,14 @@ class ScenarioRequest(BaseModel):
         missing = sorted(set(range(24)) - seen)
         if missing:
             raise ValueError(f"hours must cover 0-23 exactly; missing {missing}")
+
+        # Ordering is enforced only when explicitly requested; see Settings.
+        if get_settings().strict_hour_order:
+            if [entry.hour for entry in self.hours] != list(range(24)):
+                raise ValueError(
+                    "hours must be listed as unique integers 0 to 23 in exact "
+                    "ascending order (STRICT_HOUR_ORDER is enabled)"
+                )
         return self
 
     def ordered_hours(self) -> list[HourEntry]:

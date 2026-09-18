@@ -13,7 +13,7 @@ program, and returns a **provably cost-optimal, rule-valid** hourly operating pl
 
 1. [Quickstart](#1-quickstart)
 2. [Architecture](#2-architecture)
-3. [The LLM's role](#3-the-llms-role)
+3. [The LLM&#39;s role](#3-the-llms-role)
 4. [Guardrails](#4-guardrails)
 5. [Optimizer](#5-optimizer)
 6. [API reference](#6-api-reference)
@@ -132,13 +132,13 @@ structured directives the optimizer consumes**. This satisfies the mandatory req
 model be part of the interpretation path — using AI only for `plan_summary` or documentation would
 not.
 
-| Item | Value |
-|---|---|
-| Provider | Any OpenAI-compatible `/chat/completions` endpoint |
-| Default | **DeepSeek** — `https://api.deepseek.com/v1`, model `deepseek-chat` |
-| Also works with | OpenAI, Groq, Together, OpenRouter, vLLM, Ollama, LM Studio |
-| Output mode | JSON object (`response_format: {"type": "json_object"}`), temperature `0` |
-| Prompt location | `app/llm/prompts.py` |
+| Item            | Value                                                                          |
+| --------------- | ------------------------------------------------------------------------------ |
+| Provider        | Any OpenAI-compatible`/chat/completions` endpoint                            |
+| Default         | **DeepSeek** — `https://api.deepseek.com/v1`, model `deepseek-chat` |
+| Also works with | OpenAI, Groq, Together, OpenRouter, vLLM, Ollama, LM Studio                    |
+| Output mode     | JSON object (`response_format: {"type": "json_object"}`), temperature `0`  |
+| Prompt location | `app/llm/prompts.py`                                                         |
 
 ### What the prompt teaches
 
@@ -178,16 +178,16 @@ LLM call ──▶ guardrails ──▶ (fail) retry once, quoting the validatio
 
 Model output is untrusted structured data until every layer passes.
 
-| Layer | Responsibility | On failure |
-|---|---|---|
-| **L0** Transport | Pydantic: 24 unique hours 0–23, 1–3 non-empty notes, finite non-negative numerics | `400` structural, `422` semantic |
-| **L1** Parse | Extract JSON from fenced/prose-wrapped output; string-aware brace matching | retry with feedback |
-| **L2** Structure | `directive_type` ∈ enum; `structured_adjustment` shape per type | entry invalidated → fallback |
-| **L3** Normalize | sort/dedupe hours; clamp `factor` → [0,1]; clamp reserve → [0, capacity]; drop negatives | silent repair, logged |
-| **L4** Policy | `no_op` ⇒ `applies=false` + `null`; everything else ⇒ `applies=true` + object; exactly one entry per note in index order | enforced |
-| **L5** Apply | Compile directives into per-hour numeric tables | — |
-| **L6** Replay | Re-derive every rule from `(request, interpretation, plan)` and re-check the final plan hour by hour | re-solve, then heuristic |
-| **L7** Consistency | Recompute `total_grid_kwh`, `total_cost_bdt`, `peak_grid_kwh` from `hourly_plan` | always |
+| Layer                    | Responsibility                                                                                                                     | On failure                           |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| **L0** Transport   | Pydantic: 24 unique hours 0–23, 1–3 non-empty notes, finite non-negative numerics                                                | `400` structural, `422` semantic |
+| **L1** Parse       | Extract JSON from fenced/prose-wrapped output; string-aware brace matching                                                         | retry with feedback                  |
+| **L2** Structure   | `directive_type` ∈ enum; `structured_adjustment` shape per type                                                               | entry invalidated → fallback        |
+| **L3** Normalize   | sort/dedupe hours; clamp`factor` → [0,1]; clamp reserve → [0, capacity]; drop negatives                                        | silent repair, logged                |
+| **L4** Policy      | `no_op` ⇒ `applies=false` + `null`; everything else ⇒ `applies=true` + object; exactly one entry per note in index order | enforced                             |
+| **L5** Apply       | Compile directives into per-hour numeric tables                                                                                    | —                                   |
+| **L6** Replay      | Re-derive every rule from`(request, interpretation, plan)` and re-check the final plan hour by hour                              | re-solve, then heuristic             |
+| **L7** Consistency | Recompute`total_grid_kwh`, `total_cost_bdt`, `peak_grid_kwh` from `hourly_plan`                                            | always                               |
 
 Repair is deliberately split: *sloppy* values are fixed (unsorted hours, `factor = 1.5`, a reserve
 above capacity, `"0.2"`-as-string), while *structurally wrong* values are rejected outright.
@@ -260,11 +260,11 @@ runtime.
 
 ### Solver tiers
 
-| Tier | Engine | Role |
-|---|---|---|
-| 1 | `highs` | Exact LP via `scipy.optimize.linprog`. The normal path. |
-| 2 | `highs-elastic` | Same model with penalised slack variables (balance ≫ neutrality ≫ reserve). Used only if the organizer's feasibility guarantee is violated. |
-| 3 | `heuristic` | Dependency-free cycle local search. Guarantees a **valid** schedule (not necessarily optimal) so the service never crashes. |
+| Tier | Engine            | Role                                                                                                                                          |
+| ---- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `highs`         | Exact LP via`scipy.optimize.linprog`. The normal path.                                                                                      |
+| 2    | `highs-elastic` | Same model with penalised slack variables (balance ≫ neutrality ≫ reserve). Used only if the organizer's feasibility guarantee is violated. |
+| 3    | `heuristic`     | Dependency-free cycle local search. Guarantees a**valid** schedule (not necessarily optimal) so the service never crashes.              |
 
 ### Post-processing
 
@@ -325,72 +325,88 @@ curl -X POST http://127.0.0.1:8000/optimize-energy \
 
 **Request fields**
 
-| Field | Type | Notes |
-|---|---|---|
-| `scenario_id` | string | Echoed back in the response |
-| `operator_notes` | array[1..3] of string | Non-empty after trimming |
-| `hours` | array[24] | Must cover each hour 0–23 exactly once. **Any input order is accepted** and normalised internally — see the note below |
-| `hours[].hour` | int 0–23 | |
-| `hours[].demand_kwh` | number ≥ 0 | |
-| `hours[].solar_kwh` | number ≥ 0 | Base solar before directives |
-| `hours[].tariff_bdt_per_kwh` | number ≥ 0 | |
-| `battery.capacity_kwh` | number > 0 | |
-| `battery.initial_energy_kwh` | number ≥ 0, ≤ capacity | |
-| `battery.minimum_energy_kwh` | number ≥ 0, ≤ capacity | |
-| `battery.max_charge_kwh_per_hour` | number ≥ 0 | |
-| `battery.max_discharge_kwh_per_hour` | number ≥ 0 | |
+| Field                                  | Type                     | Notes                                                                                                                         |
+| -------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `scenario_id`                        | string                   | Echoed back in the response                                                                                                   |
+| `operator_notes`                     | array[1..3] of string    | Non-empty after trimming                                                                                                      |
+| `hours`                              | array[24]                | Must cover each hour 0–23 exactly once.**Any input order is accepted** and normalised internally — see the note below |
+| `hours[].hour`                       | int 0–23                |                                                                                                                               |
+| `hours[].demand_kwh`                 | number ≥ 0              |                                                                                                                               |
+| `hours[].solar_kwh`                  | number ≥ 0              | Base solar before directives                                                                                                  |
+| `hours[].tariff_bdt_per_kwh`         | number ≥ 0              |                                                                                                                               |
+| `battery.capacity_kwh`               | number > 0               |                                                                                                                               |
+| `battery.initial_energy_kwh`         | number ≥ 0, ≤ capacity |                                                                                                                               |
+| `battery.minimum_energy_kwh`         | number ≥ 0, ≤ capacity |                                                                                                                               |
+| `battery.max_charge_kwh_per_hour`    | number ≥ 0              |                                                                                                                               |
+| `battery.max_discharge_kwh_per_hour` | number ≥ 0              |                                                                                                                               |
 
 Extra top-level keys in the request are ignored, so a harness may attach trace fields safely.
 
-> **Why a shuffled `hours` array is accepted, not rejected.** Section 07 requires the request to
-> contain *"exactly 24 entries for hours 0 through 23"* and imposes no ordering. Ascending order is
-> demanded only of the **response** — `structured_adjustment.hours` (§5.1) and the hours we return
-> (§08). Rejecting a shuffled request would fail a legal harness case, so the service sorts
-> internally and always returns `hourly_plan` in ascending order. A regression test asserts that
-> reversed, swapped and rotated inputs all yield the identical optimal cost.
+> **Why a shuffled `hours` array is accepted by default.** Section 07 requires the request to
+> contain *"exactly 24 entries for hours 0 through 23"*. That clause is genuinely ambiguous — it can
+> be read positionally (entry *i* is hour *i*) or merely as a completeness requirement — but
+> ascending order is stated **explicitly and only** for the response: `structured_adjustment.hours`
+> (§5.1) and the returned hours (§08).
+>
+> Accepting any order and normalising internally is the **dominant** choice:
+>
+> | Request `hours` | Lenient (default) | Strict (`STRICT_HOUR_ORDER=true`) |
+> |---|---|---|
+> | ascending | ✅ correct | ✅ correct |
+> | unordered | ✅ correct | ❌ rejects a legal request |
+>
+> Lenient is correct under *both* readings; strict is correct under only one. Since the service
+> always emits `hourly_plan` in ascending order regardless of input order, rejecting buys zero
+> correctness and can only convert a valid answer into an error.
+>
+> Measured against the deployed instance: an array with hours 0/1 swapped returns `HTTP 200` with
+> cost **11350.0** — identical to the locally computed optimum and to the ascending-input response.
+>
+> Set `STRICT_HOUR_ORDER=true` to opt into the stricter reading (unordered → `400`). Regression
+> tests cover both modes, plus reversed/swapped/rotated inputs yielding identical optimal cost.
 
 **Response fields**
 
-| Field | Type | Notes |
-|---|---|---|
-| `scenario_id` | string | Must match the request |
-| `directive_interpretation` | array | One entry per note, in `note_index` order |
-| `directive_interpretation[].note_index` | int | Zero-based |
-| `directive_interpretation[].applies` | bool | `false` only for `no_op` |
-| `directive_interpretation[].directive_type` | enum | One of the six legal types |
-| `directive_interpretation[].structured_adjustment` | object \| null | `null` only for `no_op` |
-| `directive_interpretation[].explanation` | string | Free text; not byte-matched by the judge |
-| `hourly_plan` | array[24] | One entry per hour |
-| `hourly_plan[].hour` | int 0–23 | |
-| `hourly_plan[].grid_kwh` | number ≥ 0 | |
-| `hourly_plan[].solar_used_kwh` | number ≥ 0 | ≤ effective solar |
-| `hourly_plan[].battery_action` | `charge` \| `discharge` \| `idle` | |
-| `hourly_plan[].battery_kwh` | number ≥ 0 | Magnitude; `0` when idle |
-| `hourly_plan[].battery_energy_after_kwh` | number ≥ 0 | SOC after the hour |
-| `total_grid_kwh` | number | Σ `grid_kwh`, recomputed from the plan |
-| `total_cost_bdt` | number | Σ `grid_kwh × tariff`, recomputed from the plan |
-| `peak_grid_kwh` | number | max `grid_kwh`, recomputed from the plan |
-| `plan_summary` | string | Deterministic human-readable strategy |
+| Field                                                | Type                                    | Notes                                              |
+| ---------------------------------------------------- | --------------------------------------- | -------------------------------------------------- |
+| `scenario_id`                                      | string                                  | Must match the request                             |
+| `directive_interpretation`                         | array                                   | One entry per note, in`note_index` order         |
+| `directive_interpretation[].note_index`            | int                                     | Zero-based                                         |
+| `directive_interpretation[].applies`               | bool                                    | `false` only for `no_op`                       |
+| `directive_interpretation[].directive_type`        | enum                                    | One of the six legal types                         |
+| `directive_interpretation[].structured_adjustment` | object\| null                           | `null` only for `no_op`                        |
+| `directive_interpretation[].explanation`           | string                                  | Free text; not byte-matched by the judge           |
+| `hourly_plan`                                      | array[24]                               | One entry per hour                                 |
+| `hourly_plan[].hour`                               | int 0–23                               |                                                    |
+| `hourly_plan[].grid_kwh`                           | number ≥ 0                             |                                                    |
+| `hourly_plan[].solar_used_kwh`                     | number ≥ 0                             | ≤ effective solar                                 |
+| `hourly_plan[].battery_action`                     | `charge` \| `discharge` \| `idle` |                                                    |
+| `hourly_plan[].battery_kwh`                        | number ≥ 0                             | Magnitude;`0` when idle                          |
+| `hourly_plan[].battery_energy_after_kwh`           | number ≥ 0                             | SOC after the hour                                 |
+| `total_grid_kwh`                                   | number                                  | Σ`grid_kwh`, recomputed from the plan           |
+| `total_cost_bdt`                                   | number                                  | Σ`grid_kwh × tariff`, recomputed from the plan |
+| `peak_grid_kwh`                                    | number                                  | max`grid_kwh`, recomputed from the plan          |
+| `plan_summary`                                     | string                                  | Deterministic human-readable strategy              |
 
 **Directive types**
 
-| `directive_type` | `structured_adjustment` |
-|---|---|
-| `solar_reduction` | `{"hours": [...], "factor": number}` — `factor` is the usable fraction **remaining** |
-| `minimum_battery_reserve` | `{"hours": [...], "minimum_energy_kwh": number}` |
-| `no_charge_window` | `{"hours": [...]}` |
-| `no_discharge_window` | `{"hours": [...]}` |
-| `max_grid_window` | `{"hours": [...], "max_grid_kwh": number}` |
-| `no_op` | `null` |
+| `directive_type`          | `structured_adjustment`                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------------- |
+| `solar_reduction`         | `{"hours": [...], "factor": number}` — `factor` is the usable fraction **remaining** |
+| `minimum_battery_reserve` | `{"hours": [...], "minimum_energy_kwh": number}`                                              |
+| `no_charge_window`        | `{"hours": [...]}`                                                                            |
+| `no_discharge_window`     | `{"hours": [...]}`                                                                            |
+| `max_grid_window`         | `{"hours": [...], "max_grid_kwh": number}`                                                    |
+| `no_op`                   | `null`                                                                                        |
 
 **Status codes**
 
-| Code | Meaning |
-|---|---|
-| `200` | Success |
-| `400` | Malformed JSON or structurally invalid request (missing field, wrong hour count, duplicate hours, 4+ notes, blank note, negative demand) |
-| `422` | Well-formed but **provably infeasible**: `initial_energy_kwh` above `capacity_kwh`, `minimum_energy_kwh` above `capacity_kwh`, or `initial_energy_kwh` below `minimum_energy_kwh` |
-| `500` | Controlled internal error — generic message only |
+| Code    | Meaning                                                                                                                                                                                            |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `200` | Success                                                                                                                                                                                            |
+| `400` | Malformed JSON or structurally invalid request (missing field, wrong hour count, duplicate hours, 4+ notes, blank note, negative demand)                                                           |
+| `422` | Well-formed but**provably infeasible**: `initial_energy_kwh` above `capacity_kwh`, `minimum_energy_kwh` above `capacity_kwh`, or `initial_energy_kwh` below `minimum_energy_kwh` |
+| `500` | Controlled internal error — generic message only                                                                                                                                                  |
 
 Error bodies are always `{"error": {"code": "...", "message": "..."}}`.
 
@@ -401,27 +417,28 @@ Error bodies are always `{"error": {"code": "...", "message": "..."}}`.
 All configuration is environment-driven. Variable **names** documented here are part of the
 submission contract; secret **values** are never committed.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8000` | Bind port |
-| `LOG_LEVEL` | `INFO` | Logging verbosity |
-| `LLM_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI-compatible base URL |
-| `LLM_API_KEY` | *(unset)* | **Secret.** Provider credential |
-| `LLM_MODEL` | `deepseek-chat` | Model identifier |
-| `LLM_TEMPERATURE` | `0` | Sampling temperature |
-| `LLM_MAX_TOKENS` | `1600` | Response cap |
-| `LLM_TIMEOUT_SECONDS` | `18` | Per-attempt timeout |
-| `LLM_MAX_RETRIES` | `2` | Transport retries (429/5xx only) |
-| `LLM_JSON_MODE` | `true` | Request a JSON object response |
-| `LLM_MAX_CONCURRENCY` | `8` | In-flight model calls |
-| `ALLOW_DETERMINISTIC_FALLBACK` | `true` | Enable the offline rule interpreter |
-| `CACHE_SIZE` | `512` | Identity-cache entries (`0` disables) |
-| `CACHE_TTL_SECONDS` | `3600` | Cache entry lifetime |
-| `NUMERIC_TOLERANCE` | `0.01` | Comparison tolerance (kWh / BDT) |
-| `BATTERY_CYCLING_EPSILON` | `0` | Optional tie-break against needless cycling |
-| `REQUEST_TIMEOUT_SECONDS` | `25` | Hard per-request budget (below the 30 s judge timeout) |
-| `DISABLE_DOTENV` | *(unset)* | Set to `1` to ignore `.env` entirely (used by the test suite to stay hermetic) |
+| Variable                         | Default                         | Purpose                                                                           |
+| -------------------------------- | ------------------------------- | --------------------------------------------------------------------------------- |
+| `HOST`                         | `0.0.0.0`                     | Bind address                                                                      |
+| `PORT`                         | `8000`                        | Bind port                                                                         |
+| `LOG_LEVEL`                    | `INFO`                        | Logging verbosity                                                                 |
+| `LLM_BASE_URL`                 | `https://api.deepseek.com/v1` | OpenAI-compatible base URL                                                        |
+| `LLM_API_KEY`                  | *(unset)*                     | **Secret.** Provider credential                                             |
+| `LLM_MODEL`                    | `deepseek-chat`               | Model identifier                                                                  |
+| `LLM_TEMPERATURE`              | `0`                           | Sampling temperature                                                              |
+| `LLM_MAX_TOKENS`               | `1600`                        | Response cap                                                                      |
+| `LLM_TIMEOUT_SECONDS`          | `18`                          | Per-attempt timeout                                                               |
+| `LLM_MAX_RETRIES`              | `2`                           | Transport retries (429/5xx only)                                                  |
+| `LLM_JSON_MODE`                | `true`                        | Request a JSON object response                                                    |
+| `LLM_MAX_CONCURRENCY`          | `8`                           | In-flight model calls                                                             |
+| `ALLOW_DETERMINISTIC_FALLBACK` | `true`                        | Enable the offline rule interpreter                                               |
+| `CACHE_SIZE`                   | `512`                         | Identity-cache entries (`0` disables)                                           |
+| `CACHE_TTL_SECONDS`            | `3600`                        | Cache entry lifetime                                                              |
+| `NUMERIC_TOLERANCE`            | `0.01`                        | Comparison tolerance (kWh / BDT)                                                  |
+| `BATTERY_CYCLING_EPSILON`      | `0`                           | Optional tie-break against needless cycling                                       |
+| `REQUEST_TIMEOUT_SECONDS`      | `25`                          | Hard per-request budget (below the 30 s judge timeout)                            |
+| `DISABLE_DOTENV`               | *(unset)*                     | Set to`1` to ignore `.env` entirely (used by the test suite to stay hermetic) |
+| `STRICT_HOUR_ORDER`            | `false`                       | When `true`, reject a request whose `hours` array is not ascending 0–23 (see the note in section 6) |
 
 ---
 
@@ -435,12 +452,12 @@ python -m pytest
 
 **74 tests, all passing** in ~2.5 s, fully offline.
 
-| File | Covers |
-|---|---|
-| `tests/test_public_cases.py` | Optimality vs all 10 public references, replay cleanliness, exact energy balance, no simultaneous charge/discharge, heuristic validity, rule-interpreter accuracy, full pipeline with and without a model |
-| `tests/test_guardrails.py` | Fenced/prose/bare JSON, brace matching inside strings, hour sorting and dedup, factor and reserve clamping, unknown directive rejection, `applies` semantics, index coverage, policy assertions |
-| `tests/test_solver.py` | Energy balance exactness, neutrality, price arbitrage, grid-cap pre-charging, solar reduction, no-charge windows, reserve enforcement, infeasible-scenario degradation, scipy-unavailable fallback, tamper detection by the verifier |
-| `tests/test_api.py` | `/health`, full response schema, self-consistent totals, out-of-order hours, every status code, extra-field tolerance, secret-leak check, `.env` hermeticity |
+| File                           | Covers                                                                                                                                                                                                                               |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `tests/test_public_cases.py` | Optimality vs all 10 public references, replay cleanliness, exact energy balance, no simultaneous charge/discharge, heuristic validity, rule-interpreter accuracy, full pipeline with and without a model                            |
+| `tests/test_guardrails.py`   | Fenced/prose/bare JSON, brace matching inside strings, hour sorting and dedup, factor and reserve clamping, unknown directive rejection,`applies` semantics, index coverage, policy assertions                                     |
+| `tests/test_solver.py`       | Energy balance exactness, neutrality, price arbitrage, grid-cap pre-charging, solar reduction, no-charge windows, reserve enforcement, infeasible-scenario degradation, scipy-unavailable fallback, tamper detection by the verifier |
+| `tests/test_api.py`          | `/health`, full response schema, self-consistent totals, out-of-order hours, every status code, extra-field tolerance, secret-leak check, `.env` hermeticity                                                                     |
 
 The suite is **hermetic**: `DISABLE_DOTENV=1` is set automatically, so a local `.env`
 containing a real API key can never turn the tests into billed, network-dependent provider calls.
@@ -528,19 +545,19 @@ dimensions:
 
 Reported totals are also recomputed from `hourly_plan` to catch any arithmetic drift.
 
-| Category | Cases | Focus |
-|---|---|---|
-| `SOLAR` | 4 | percentage-of vs percentage-reduction, fractional wording, "drop to X%" |
-| `CHARGE` | 2 | explicit prohibition, indirect "charger offline" |
-| `DISCHARGE` | 2 | explicit prohibition, passive-voice availability |
-| `RESERVE` | 2 | absolute kWh, percentage of capacity |
-| `GRID` | 2 | plain cap, tight equipment cap requiring near-max discharge |
-| `DISTRACTOR` | 5 | admin/menu/booking notes, including one that says "hours" |
-| `TIME` | 7 | single hour, to-midnight, from-midnight, noon, 6-hour window, pre-dawn, late evening |
-| `MULTI` | 10 | 2–3 directives, distractor mixing, duplicate-type merging (factors multiply, reserve max, cap min) |
-| `PARAPHRASE` | 6 | the same directive written two ways each, for robustness |
-| `STRESS` | 6 | zero solar, surplus/curtailment, flat tariff, extreme peak, tiny battery, zero discharge rate |
-| `API` | 4 | `/health`, malformed JSON → 400, too many notes → 400, semantic invalid → 422 |
+| Category       | Cases | Focus                                                                                               |
+| -------------- | ----- | --------------------------------------------------------------------------------------------------- |
+| `SOLAR`      | 4     | percentage-of vs percentage-reduction, fractional wording, "drop to X%"                             |
+| `CHARGE`     | 2     | explicit prohibition, indirect "charger offline"                                                    |
+| `DISCHARGE`  | 2     | explicit prohibition, passive-voice availability                                                    |
+| `RESERVE`    | 2     | absolute kWh, percentage of capacity                                                                |
+| `GRID`       | 2     | plain cap, tight equipment cap requiring near-max discharge                                         |
+| `DISTRACTOR` | 5     | admin/menu/booking notes, including one that says "hours"                                           |
+| `TIME`       | 7     | single hour, to-midnight, from-midnight, noon, 6-hour window, pre-dawn, late evening                |
+| `MULTI`      | 10    | 2–3 directives, distractor mixing, duplicate-type merging (factors multiply, reserve max, cap min) |
+| `PARAPHRASE` | 6     | the same directive written two ways each, for robustness                                            |
+| `STRESS`     | 6     | zero solar, surplus/curtailment, flat tariff, extreme peak, tiny battery, zero discharge rate       |
+| `API`        | 4     | `/health`, malformed JSON → 400, too many notes → 400, semantic invalid → 422                  |
 
 #### Results against the deployed Render instance
 
@@ -563,12 +580,12 @@ target: https://bup-hackathon-00ea.onrender.com
 
 Measured with `deepseek-chat` (`tools/e2e_check.py`, all 10 public cases, cache cold):
 
-| Check | Result |
-|---|---|
-| Directive interpretation vs published ground truth | **10/10 exact matches**, 0/10 mismatches |
-| Response cost vs organizer reference | **0.00 delta on all 10** |
-| Pipeline source | `source=llm`, `warnings=0` on all 10 — no fallbacks triggered |
-| Latency | min 791 ms · median 1019 ms · **p95 1489 ms** · max 1489 ms |
+| Check                                              | Result                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------- |
+| Directive interpretation vs published ground truth | **10/10 exact matches**, 0/10 mismatches                      |
+| Response cost vs organizer reference               | **0.00 delta on all 10**                                      |
+| Pipeline source                                    | `source=llm`, `warnings=0` on all 10 — no fallbacks triggered  |
+| Latency                                            | min 791 ms · median 1019 ms ·**p95 1489 ms** · max 1489 ms |
 
 The p95 target for full latency credit is ≤ 5 s, so this sits comfortably inside the top band. Both
 percentage traps were resolved correctly by the live model — `"25% of the forecast"` → `0.25` and
@@ -697,15 +714,80 @@ accepted and normalised, because over-strict validation silently fails valid har
 
 ---
 
-## 13. Deployment status
+## 13. Deployment
 
-Per instruction, **deployment artifacts are deferred**: no Dockerfile, no registry image, and no
-hosted endpoint are included in this pass. Everything needed to run the service locally is present
-and verified.
+### Hosted service
 
-When deployment is picked up, the remaining work is:
+A public instance is deployed and reachable for both endpoints:
 
-1. a `Dockerfile` that binds `0.0.0.0`, exposes the documented port, and bakes in **no** secrets;
-2. a pullable registry reference with an exact tag or digest;
-3. a hosted public base URL reachable for `GET /health` and `POST /optimize-energy`;
-4. the 3-minute architecture video (tie-break only, no base points).
+| Endpoint | URL                                                              |
+| -------- | ---------------------------------------------------------------- |
+| Health   | `GET https://bup-hackathon-00ea.onrender.com/health`           |
+| Optimize | `POST https://bup-hackathon-00ea.onrender.com/optimize-energy` |
+
+Provider credentials are supplied as platform environment variables. Nothing is committed.
+
+### Docker fallback image
+
+Registry reference: **`lokmansharif/gridwise-llm:1.0.0`** (also tagged `latest`).
+
+Immutable digest: **`sha256:a9c40b7ec8c6f6845dfa97c85a62cb005e4e1d77c80f1830889391e4d803e397`**
+
+```bash
+# by tag
+docker pull lokmansharif/gridwise-llm:1.0.0
+
+# or pinned to the exact digest (strongest reproducibility guarantee)
+docker pull lokmansharif/gridwise-llm@sha256:a9c40b7ec8c6f6845dfa97c85a62cb005e4e1d77c80f1830889391e4d803e397
+```
+
+Verified end to end: the image was removed locally, re-pulled from the registry, and run — `GET /health`
+returned `{"status":"ok"}`, `POST /optimize-energy` returned the exact reference optimum for a public
+case, the Docker `HEALTHCHECK` reported `healthy`, and the new `422` / `400` paths both behaved.
+
+The image is a fully self-contained fallback execution path: the only external dependency at
+runtime is the LLM provider.
+
+**Pull and run the published image**
+
+```bash
+docker pull lokmansharif/gridwise-llm:1.0.0
+
+docker run --rm -p 8000:8000 \
+  -e LLM_API_KEY=<your-key> \
+  lokmansharif/gridwise-llm:1.0.0
+```
+
+**Verify**
+
+```bash
+curl http://127.0.0.1:8000/health
+# -> {"status":"ok"}
+```
+
+**Rebuild from source**
+
+```bash
+docker build -t lokmansharif/gridwise-llm:1.0.0 .
+```
+
+**Image properties**
+
+| Property     | Value                                                                                                                 |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Base         | `python:3.12-slim`                                                                                                  |
+| Exposed port | `8000` (documented port)                                                                                            |
+| Bind address | `0.0.0.0` by default, override with `HOST`                                                                        |
+| User         | unprivileged`appuser` (uid 10001), not root                                                                         |
+| Secrets      | **none baked in** — `.env` is excluded via `.dockerignore`; configuration arrives as environment variables |
+| Health       | Docker`HEALTHCHECK` probing `GET /health` with a 25 s start period (covers the scipy/HiGHS warm-up)               |
+| Entrypoint   | `python -m app.main`, so every documented variable (`HOST`, `PORT`, `LLM_*`) is honoured                      |
+
+Required environment variables are the names listed in section 7; at minimum `LLM_API_KEY`. Without
+it the container still starts and serves correct plans using the offline rule interpreter, but the
+live model is required for the judged interpretation path.
+
+### Still outstanding
+
+* the 3-minute architecture video (tie-break only, no base points) — the narration script and
+  diagrams are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)

@@ -258,6 +258,32 @@ def test_initial_energy_equal_to_minimum_is_accepted(client: TestClient, cases) 
     assert response.status_code == 200, response.text
 
 
+def test_out_of_order_hours_rejected_when_strictly_configured(monkeypatch, cases) -> None:
+    """`STRICT_HOUR_ORDER=true` opts in to rejecting an unordered request array.
+
+    Off by default, because the canonical specification requires ascending order
+    of the RESPONSE only and accepting any order is correct under either reading
+    of the request clause.
+    """
+    monkeypatch.setenv("STRICT_HOUR_ORDER", "true")
+
+    from app.config import get_settings
+
+    get_settings.cache_clear()
+    from app.main import app
+
+    with TestClient(app) as strict_client:
+        shuffled = sample_input(cases[0])
+        shuffled["hours"] = list(reversed(shuffled["hours"]))
+        rejected = strict_client.post("/optimize-energy", json=shuffled)
+        assert rejected.status_code == 400, rejected.text
+
+        ordered = sample_input(cases[0])
+        assert strict_client.post("/optimize-energy", json=ordered).status_code == 200
+
+    get_settings.cache_clear()
+
+
 def test_extra_request_fields_are_ignored(client: TestClient, cases) -> None:
     payload = sample_input(cases[0])
     payload["trace_id"] = "abc-123"
